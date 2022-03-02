@@ -1,0 +1,7 @@
+main/build/*
+loader_mb/build/*
+main/*.gba
+loader_mb/*.gba
+*.elf
+*.sav
+.DS_Store
