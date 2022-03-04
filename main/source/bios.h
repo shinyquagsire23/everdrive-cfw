@@ -87,6 +87,16 @@
 #define SD_MODE_BITS (0x001E)
 #define SD_SPD_BITS  (0x0001)
 
+// bram-db.dat
+#define DB_SAV_MASK   (0x7)
+#define DB_SAV_NONE   (0x0)
+#define DB_SAV_EEP    (0x1)
+#define DB_SAV_SRM    (0x2)
+#define DB_SAV_FLA64  (0x3)
+#define DB_SAV_FLA128 (0x4)
+
+#define DB_IS_32MIB   (0x10)
+
 #define GBA_WAITCNT *((vu32 *)0x4000204)
 #define GBA_TIMER1_VAL *((vu16 *)0x4000104)
 #define GBA_TIMER1_CFG *((vu16 *)0x4000106)

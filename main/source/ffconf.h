@@ -149,7 +149,7 @@
 */
 
 
-#define FF_FS_RPATH     1
+#define FF_FS_RPATH     2
 /* This option configures support for relative path.
 /
 /   0: Disable relative path and remove related functions.

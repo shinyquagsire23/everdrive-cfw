@@ -149,9 +149,9 @@ u8 diskCmdSD(u8 cmd, u32 arg) {
     bi_sd_mode(SD_MODE1);
     i = 0;
     for (;;) {
-        if ((bi_sd_cmd_val() & 192) == 0)break;
+        if ((bi_sd_cmd_val() & 0xC0) == 0)break;
         //if (bi_sd_cmd_val() != 0xff)break;
-        //if ((bi_sd_cmd_val() & 192) != 0)break;
+        //if ((bi_sd_cmd_val() & 0xC0) != 0)break;
         if (i++ == WAIT)return DISK_ERR_CMD_TIMEOUT;
         bi_sd_cmd_rd();
     }
@@ -177,7 +177,9 @@ u8 diskCmdSD(u8 cmd, u32 arg) {
         } else {
             crc = diskCrc7(sd_resp_buff, resp_len - 1) | 1;
         }
-        if (crc != sd_resp_buff[resp_len - 1])return DISK_ERR_CRC_ERROR;
+        if (crc != sd_resp_buff[resp_len - 1]) {
+            return DISK_ERR_CRC_ERROR;
+        }
     }
 
     return 0;
@@ -211,7 +213,7 @@ u8 diskInit() {
     if (resp == 0)card_type |= SD_V2;
 
 
-    if (card_type == SD_V2) {
+    if (card_type & SD_V2) {
 
         for (i = 0; i < wait_len; i++) {
 

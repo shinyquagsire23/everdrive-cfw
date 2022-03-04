@@ -7,11 +7,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdarg.h>
 
 #include "bios.h"
 #include "disk.h"
 #include "fatfs/ff.h"
+#include "video.h"
+#include "mgba.h"
+
+// bram-db.dat to bi_set_save_type types
+const u8 bram_to_ed[8] = {0,BI_SAV_EEP,BI_SAV_SRM,BI_SAV_FLA64,BI_SAV_FLA128,0,0,0,0};
+
+// bram-db.dat doesn't include RTC stuff :/
+const char* bram_rtc_list = "U3IPU3IEU32PU32EU3IJBLVJBLJJBPEJAXVJAXPJBPEEBPEPBPESAXVPAXVEAXVSAXVIAXPPAXPEAXPSAXPIBR4JBKAJU33JU3IP\x00\x00\x00\x00";
 
 int sio_waiting = 0;
 
@@ -81,158 +88,27 @@ void sio_handle()
         iprintf("%c", v);
 }
 
-#define BG0_CHARBASE (0)
-#define BG1_CHARBASE (1)
-#define BG0_MAPBASE (20)
-
-#define FONT_SCALE (1)
-
-#define FB_OFFSET(x, y)     ( ((((x%8)/4) ) * 2) + ((y % 8)*4) + ((y/8) * 0x400) + ((x/8) * 0x20) + 0x20 )
-#define FB_SHIFT(c, x, y)     (c << (x % 4)*4)
-
-extern const u8 msx_font[];
-int video_line_y = 0;
-int video_line_x = 0;
 FATFS fatfs __attribute((aligned(16))) = {0};
 char menu_curdir[64];
 char menu_boot_sel[64];
 int menu_cur_sel = 0;
-u8 video_color = 2;
-u8 video_whichbuf = 0;
-u8 video_dirty = 0;
+u8 fs_initted = 0;
+u8 menu_boot_sel_is_dir = 0;
 
-static inline void draw_plot_raw(int x, int y, u8 c)
+const char* bram_save_ext(u8 type)
 {
-    void* addr = CHAR_BASE_ADR(video_whichbuf ? BG1_CHARBASE : BG0_CHARBASE) + FB_OFFSET(x, y);
-    u16 read = *((u16*)addr);
-    read &= ~FB_SHIFT(0xF, x, y);
-    *((u16*)addr) = read | (FB_SHIFT(c, x, y));
-}
-
-int draw_char(int x, int y, u8 color, char c)
-{
-    u8 *font = (u8*)(msx_font + c * 8);
-
-    if (x > 240 || x < -8) return -1;
-    if (y > 160 || y < -8) return -1;
-    
-    for (int i = 0; i < (8 * FONT_SCALE); ++i)
+    switch (type)
     {
-        for (int j = 0; j < 8 * FONT_SCALE; ++j)
-        {
-            u8 a = (*font & (128 >> (j / FONT_SCALE))) ? color : 0;
-            if (a)
-                draw_plot_raw(x + j, y + i, a);
-        }
-        if(i % FONT_SCALE == 0)
-            ++font;
+        case DB_SAV_NONE:
+            return "";
+        case DB_SAV_EEP:
+            return ".eep";
+        case DB_SAV_SRM:
+            return ".srm";
+        case DB_SAV_FLA64:
+        case DB_SAV_FLA128:
+            return ".fla";
     }
-    return x + (8 * FONT_SCALE);
-}
-
-void video_print(const char* str, int c)
-{
-    for (int i = 0; i < strlen(str); i++)
-    {
-        if (str[i] == '\n')
-        {
-            video_line_y += 8;
-            video_line_x = 0;
-            continue;
-        }
-        else if (str[i] == '\r')
-        {
-            video_line_x = 0;
-            continue;
-        }
-        draw_char(video_line_x, video_line_y, c, str[i]);
-        video_line_x += 6;
-    }
-}
-
-void video_printf(const char *format, ...)
-{
-    char tmp[50];
-
-    va_list args;
-    va_start(args, format);
-
-    vsnprintf(tmp, 50, format, args);
-    video_print(tmp, video_color);
-
-    va_end(args);
-}
-
-
-void video_init()
-{
-    //REG_DISPCNT |= LCDC_OFF;
-
-    video_line_x = 0;
-    video_line_y = 0;
-    
-    BG_COLORS[0] = 0x0;
-    BG_COLORS[1] = 0x0;
-    BG_COLORS[2] = 0x7FFF;
-    BG_COLORS[3] = RGB8(0xFF, 0, 0);
-    BG_COLORS[4] = RGB8(0, 0xFF, 0);
-    BG_COLORS[5] = RGB8(0, 0, 0xFF);
-    BG_COLORS[6] = RGB8(0xFF, 0, 0xFF);
-    BG_COLORS[7] = RGB8(0, 0xFF, 0xFF);
-    BG_COLORS[7] = RGB8(0xFF, 0xFF, 0);
-
-    OBJ_COLORS[0] = 0x0;
-    OBJ_COLORS[1] = 0x0;
-    OBJ_COLORS[2] = 0x7FFF;
-
-    //memset((void*)0x06000000, 0, 0x18000);
-
-    SetMode(MODE_0 | BG0_ON | OBJ_ON);
-    BGCTRL[1] = BG_SIZE_0 | CHAR_BASE(BG1_CHARBASE) | SCREEN_BASE(BG0_MAPBASE);
-    BGCTRL[0] = BG_SIZE_0 | CHAR_BASE(BG0_CHARBASE) | SCREEN_BASE(BG0_MAPBASE);
-    //REG_BG0CNT = BG_SIZE_0 | CHAR_BASE(BG0_CHARBASE) | BG_MAP_BASE(BG0_MAPBASE);
-    //REG_BG1CNT = BG_SIZE_0 | CHAR_BASE(BG1_CHARBASE) | BG_MAP_BASE(BG0_MAPBASE);
-
-    //*(u16*)CHAR_BASE_ADR(BG0_CHARBASE) = 0x0102;
-    for (int i = 0; i < 20-3; i++)
-    {
-        for (int j = 0; j < 30; j++)
-        {
-            *(u16*)(MAP_BASE_ADR(BG0_MAPBASE)+(j*2)+((i+1)*2*32)) = (j+(i*32))+1;
-        }
-    }
-
-    /*for (int j = 0; j < (160/8); j++)
-    {
-        for (int i = 0; i < 50; i++)
-        {
-            draw_char(i*6, i+(j*8), 2+(i%4), 'A'+i);
-        }
-    }*/
-    //video_print("asdf", 2);
-}
-
-void video_clear()
-{
-    memset(CHAR_BASE_ADR(video_whichbuf ? BG1_CHARBASE : BG0_CHARBASE), 0, 0x4000);
-    video_line_x = 0;
-    video_line_y = 0;
-    video_color = 2;
-}
-
-void video_swap()
-{
-    VBlankIntrWait();
-    if (video_whichbuf)
-    {
-        SetMode(MODE_0 | BG1_ON | OBJ_ON);
-    }
-    else
-    {
-        SetMode(MODE_0 | BG0_ON | OBJ_ON);
-    }
-
-    video_whichbuf = !video_whichbuf;
 }
 
 void menu_draw()
@@ -244,8 +120,8 @@ void menu_draw()
     video_clear();
 
     video_printf("\n%s\n", menu_curdir);
-#if 1
-    res = f_opendir(&dir, "sdmc:/");
+
+    res = f_opendir(&dir, ".");
     int iter = 0;
     if(res == FR_OK)
     {
@@ -254,65 +130,70 @@ void menu_draw()
             res = f_readdir(&dir, &fno);
             if (res != FR_OK || fno.fname[0] == 0) break;
             if (fno.fname[0] == '.') continue;
+            u8 is_dir = fno.fattrib & AM_DIR;
+
             video_color = 4;
             video_printf(" %c ", menu_cur_sel == iter ? '>' : ' ');
             video_color = 2;
-            video_printf("%s\n", fno.fname);
+            video_printf("%s%c\n", fno.fname, is_dir ? '/' : ' ');
 
             if (menu_cur_sel == iter)
             {
                 strcpy(menu_boot_sel, menu_curdir);
                 strcat(menu_boot_sel, fno.fname);
+                menu_boot_sel_is_dir = is_dir;
             }
 
             iter++;
         }
     }
     f_closedir(&dir);
-#endif
+
     video_swap();
     video_dirty = 0;
 }
 
 void fs_init()
 {
-    f_mount(&fatfs, "sdmc:", 1);
+    int res = f_mount(&fatfs, "sdmc:", 1);
+    fs_initted = (res == FR_OK);
 
     strcpy(menu_curdir, "sdmc:/");
 }
 
-void test_read()
+void menu_launch_selected()
 {
-    
     FIL file = {0};
     
     FILINFO fno = {0};
     UINT btx = 0;
     int res;
 
-    
     //const char* to_load = "sdmc:/GBASYS/GBAOS.gba";
     const char* to_load = menu_boot_sel;//"sdmc:/Ruby.gba";
     video_printf("%s\n", to_load);
     //const char* to_load = "sdmc:/gba-switch-bios_mb.gba";
-#if 1
+
     res = f_open(&file, to_load, FA_OPEN_EXISTING | FA_READ);
     if(res == FR_OK)
     {
         size_t total = f_size(&file);
         size_t read = 0;
+        size_t chunk_size = f_size(&file);
+        if (chunk_size > 0x800000)
+            chunk_size = 0x800000;
 
-        video_printf("Reading %s... sz 0x%08zx\n", to_load, total);
+        video_printf("Reading %s...\nsz 0x%08zx\n", to_load, total);
 
         while (total)
         {
-            u32 test = 0;
-
-            res = f_read(&file, (void*)(0x08000000 + read), f_size(&file), &btx);
+            res = f_read(&file, (void*)(0x08000000 + read), chunk_size, &btx);
             if(res != FR_OK) {
                 video_printf("Error while reading, %x\n", res);
+                while (1);
                 break;
             }
+            //video_printf("%08zx\n", total);
             //(void*)(0x0A000000 + read)
             //*(u32*)(0x08000000 + read) = test;
             if (btx > total)
@@ -321,11 +202,60 @@ void test_read()
             total -= btx;
             read += btx;
             //iprintf("%x\n", read);
+
+            if (read >= 0x01000000) {
+                bi_set_rom_bank(1);
+                read -= 0x01000000;
+            }
         }
+
+        bi_set_rom_bank(0);
 
         f_close(&file);
     }
-#endif
+
+    // TODO: Binary search for speed
+    res = f_open(&file, "sdmc:/GBASYS/sys/bram-db.dat", FA_OPEN_EXISTING | FA_READ);
+    if(res == FR_OK)
+    {
+        uint32_t entry[2];
+        entry[1] = 0;
+
+        uint32_t num_entries = f_size(&file)/5;
+
+        for (int i = 0; i < num_entries; i++)
+        {
+            res = f_read(&file, &entry, 5, &btx);
+            if(res != FR_OK) {
+                video_printf("Error while reading, %x\n", res);
+                break;
+            }
+            if (*(u32*)0x080000AC == entry[0]) {
+                mgba_printf(MGBA_LOG_ERROR, "%x %x\n", entry[0], entry[1]);
+
+                u8 sav_type = entry[1] & DB_SAV_MASK;
+                u8 ed_sav_type = bram_to_ed[sav_type];
+                bi_set_save_type(ed_sav_type);
+
+                if (entry[1] & DB_IS_32MIB) {
+                    //TODO
+                    bi_set_rom_mask(0x02000000);
+                }
+            }
+        }
+        f_close(&file);
+    }
+
+    // Check if the RTC needs enabling
+    u32* rtc_list = (u32*)bram_rtc_list;
+    while (1)
+    {
+        if (!*rtc_list) break;
+        if (*rtc_list == *(u32*)0x080000AC) {
+            bi_rtc_on();
+        }
+        rtc_list++;
+    }
 }
 
 int main(void) 
@@ -333,12 +263,12 @@ int main(void)
     irqInit();
     irqEnable(IRQ_VBLANK);
 
+    mgba_open();
+
     GBA_WAITCNT = 0;//0x4317;
 
     bi_init();
-    bi_rtc_on();
     bi_set_rom_bank(0);
-    bi_set_save_type(BI_SAV_FLA128);
 
 
     u8 idk = 0;//EDIO_startup();
@@ -348,21 +278,7 @@ int main(void)
     //consoleDemoInit();
 
     video_printf("Hello world!\n");
-    video_printf("Hello world!\n");
-    video_printf("Hello world!\n");
-    video_printf("Hello world!\n");
-    video_printf("Hello world!\n");
-    video_printf("Hello world!\n");
-    video_printf("Hello world!\n");
-    video_printf("Hello world!\n");
-    video_printf("Hello world!\n");
-    video_printf("Hello world!\n");
-    video_printf("Hello world!\n");
-    video_printf("Hello world!\n");
-    video_printf("Hello world!\n");
-    video_printf("Hello world!\n");
-    video_printf("Hello world!\n");
-    video_printf("Hello world!\n");
+    mgba_printf(MGBA_LOG_ERROR, "Hello mGBA!\n");
 
     fs_init();
     video_dirty = 1;
@@ -384,19 +300,29 @@ int main(void)
             menu_cur_sel--;
             video_dirty = 1;
         }
-        if (kd & KEY_A)
+        if (kd & KEY_B)
         {
-            video_clear();
-            video_whichbuf = 0;
-            video_clear();
-            SetMode(MODE_0 | BG0_ON | OBJ_ON);
+            f_chdir("..");
+            menu_cur_sel = 0;
+            f_getcwd(menu_curdir+5, sizeof(menu_curdir)-5);
+        }
+        if (kd & KEY_A && menu_boot_sel_is_dir) {
+            f_chdir(menu_boot_sel);
+            menu_cur_sel = 0;
+            f_getcwd(menu_curdir+5, sizeof(menu_curdir)-5);
+        }
+        else if (kd & KEY_A && !menu_boot_sel_is_dir)
+        {
+            video_mode_singlebuffer();
 
-            test_read();
+            menu_launch_selected();
             //video_swap();
             //
             video_printf("\nTest SD Read:\n%08x %08x\n", *(u32*)0x08000000, *(u32*)0x08000004, (void*)0x080000AC);
             //while (1);
+            //if (fs_initted)
             bi_reboot(1);
+            while (1);
         }
     }
 
