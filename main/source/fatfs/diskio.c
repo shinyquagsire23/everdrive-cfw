@@ -20,7 +20,7 @@
 /* Definitions of physical drive number for each drive */
 #define DEV_SDCARD      0
 #define SDMMC_DEFAULT_BLOCKLEN (512)
-#define SDHC_BLOCK_COUNT_MAX (512)
+#define SDHC_BLOCK_COUNT_MAX (1)
 
 /*-----------------------------------------------------------------------*/
 /* Get Drive Status                                                      */
@@ -113,6 +113,10 @@ DRESULT disk_read (
     while(count)
     {
         u32 work = min(count, SDHC_BLOCK_COUNT_MAX);
+        if (buffer >= 0x08000000 && buffer < 0x0E000000)
+        {
+            work = min(count, 512);
+        }
 
         if(!moved_buf)
             buffer = (void*)buff;
@@ -181,7 +185,7 @@ DRESULT disk_write (
         u32 work = min(count, SDHC_BLOCK_COUNT_MAX);
 
         if(moved_buf) 
-            memcpy(buffer, buff, work * SDMMC_DEFAULT_BLOCKLEN);
+            memcpy32(buffer, buff, work * SDMMC_DEFAULT_BLOCKLEN);
         else        
             buffer = (void*)buff;
 
@@ -189,13 +193,12 @@ DRESULT disk_write (
         {
             case DEV_SDCARD:
             {
-                /*if(diskWrite(sector, buffer, work) != 0)
+                if(diskWrite(sector, buffer, work) != 0)
                 {
                     if(moved_buf)
                         free(buffer);
                     return RES_ERROR;
-                }*/
-                return RES_ERROR;
+                }
                 break;
             }
         }

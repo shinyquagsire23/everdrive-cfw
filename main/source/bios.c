@@ -19,10 +19,13 @@ u8 bi_eep_write_dw(u8 *src, u16 addr);
 u16 cart_cfg;
 u8 sd_cfg;
 u16 eep_size;
+u16 gamepak_ws;
 //int has_init = 0;
 
 u8 bi_init() {
     //if (has_init) return 0;
+
+    bi_set_gamepak_ws(0);
 
     bi_reg_wr(REG_KEY, 0xA5);//unlock everdrive registers (write only)
     cart_cfg = CFG_REGS_ON | CFG_NROM_RAM | CFG_ROM_WE_ON; //regs read on, switch from boot rom to psram, psram write on
@@ -34,6 +37,12 @@ u8 bi_init() {
     //has_init = 1;
 
     return 0;
+}
+
+void bi_set_gamepak_ws(u16 val)
+{
+    gamepak_ws = val;
+    BUS_CONFIG = gamepak_ws;
 }
 
 u16 bi_reg_rd(u16 reg) {
@@ -523,6 +532,106 @@ u16 bi_get_fpga_ver() {
     return bi_reg_rd(REG_FPGA_VER);
 }
 
+void bi_persist_init()
+{
+    bi_reg_wr(REG_GPIO, 3);
+    bi_reg_wr(REG_GPIO, 2);
+    bi_reg_wr(REG_GPIO, 0);
+}
+
+void bi_persist_deinit()
+{
+    bi_reg_wr(REG_GPIO, 0);
+    bi_reg_wr(REG_GPIO, 2);
+    bi_reg_wr(REG_GPIO, 3);
+}
+
+uint8_t bi_persist_write8(uint8_t val)
+{
+    for (int i = 0; i < 8; i++)
+    {
+        bi_reg_wr(REG_GPIO, (val >> 7));
+        bi_reg_wr(REG_GPIO, (val >> 7) | 2);
+        bi_reg_wr(REG_GPIO, (val >> 7));
+
+        val <<= 1;
+    }
+    bi_reg_wr(REG_GPIO, 1);
+    bi_reg_wr(REG_GPIO, 3);
+    bi_reg_wr(REG_GPIO, 1);
+
+    return (bi_reg_rd(REG_GPIO) & 1) ? 0x41 : 0;
+}
+
+uint8_t bi_persist_read8(uint8_t val)
+{
+    bi_reg_wr(REG_GPIO, 1);
+
+    // Writes out 0xFF
+    for (int i = 0; i < 8; i++)
+    {
+        bi_reg_wr(REG_GPIO, 3);
+        bi_reg_wr(REG_GPIO, 1);
+    }
+
+    uint8_t retval = (bi_reg_rd(REG_GPIO) & 0xFF);
+
+    bi_reg_wr(REG_GPIO, val);
+    bi_reg_wr(REG_GPIO, val | 2);
+    bi_reg_wr(REG_GPIO, val);
+
+    return retval;
+}
+
+uint8_t bi_persist_read(u16 addr, u8* pOut, u32 len)
+{
+    u8 cmd = 0xA0;
+    if (addr & 0x8000)
+    {
+        if (addr >= 0x8200)
+        {
+            cmd = 0xD0;
+        }
+        else
+        {
+            cmd = 0xA2;
+        }
+    }
+
+    bi_persist_init();
+
+    // Send seek cmd
+    if (bi_persist_write8(cmd))
+    {
+        return 0x41;
+    }
+
+    // Send the address we are reading
+    u16 addr_shift = addr;
+    if (cmd == 0xA0)
+    {
+        if (bi_persist_write8(addr_shift >> 8))
+            return 0x41;
+    }
+    if (bi_persist_write8(addr_shift & 0xFF))
+        return 0x41;
+
+    bi_persist_init();
+
+    // Do the actual reading
+    u8 cmd_next = cmd | 1;
+    if (bi_persist_write8(cmd_next))
+        return 0x41;
+
+    u8* pOutIter = pOut;
+    for (u32 i = 0; i < len; i++)
+    {
+        *pOutIter = bi_persist_read8(i == (len-1) ? 1 : 0);
+        pOutIter++;
+    }
+
+    bi_persist_deinit();
+}
 
 void bi_rtc_on() {
     cart_cfg |= CFG_RTC_ON;

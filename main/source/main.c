@@ -246,6 +246,9 @@ void menu_launch_selected()
         f_close(&file);
     }
 
+    // TODO: GBASYS/sys/romcfg/*.dat, [u16 RTC en override] [u16 save override]
+    // TODO: GBASYS/sys/registery.dat [char * 0x170 fullpath] [u32 code] [u32 unk] [char * 2 unk] [char * 0xC title name] [u16 unk] [u32 unk] [u32 unk] [u16 unk] [u16 unk] [u32 unk] [u32 crc32]
+
     // Check if the RTC needs enabling
     u32* rtc_list = (u32*)bram_rtc_list;
     while (1)
@@ -265,13 +268,10 @@ int main(void)
 
     mgba_open();
 
-    GBA_WAITCNT = 0;//0x4317;
+    //GBA_WAITCNT = 0;//0x4317;
 
     bi_init();
     bi_set_rom_bank(0);
-
-
-    u8 idk = 0;//EDIO_startup();
 
     video_init();
 
@@ -282,6 +282,42 @@ int main(void)
 
     fs_init();
     video_dirty = 1;
+
+#if 0
+    u8 __attribute((aligned(16))) tmp[16];
+    u16 addr = 0x8000;
+    
+    UINT btx = 0;
+    FIL file = {0};
+    int res = f_open(&file, "sdmc:/read_eeprom.bin", FA_CREATE_ALWAYS | FA_WRITE);
+    if(res == FR_OK)
+    {
+        video_printf("Write...\n");
+        for (int i = 0; i < 0x200/16; i++)
+        {
+            bi_persist_read(addr, tmp, 16);
+
+            res = f_write(&file, tmp, 16, &btx);
+            if(res != FR_OK) {
+                video_printf("Error while reading, %x\n", res);
+                break;
+            }
+            
+            addr += 16;
+        }
+        f_close(&file);
+    }
+
+    res = f_open(&file, "sdmc:/read_eeprom.bin", FA_OPEN_EXISTING | FA_READ);
+    if(res == FR_OK)
+    {
+        f_close(&file);
+    }
+
+    f_unmount(&fatfs);
+
+    while (1);
+#endif
 
     while (1)
     {

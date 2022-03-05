@@ -104,6 +104,9 @@
 #define IRQ_GAME_PAK (0x2000)
 
 u8 bi_init();
+void bi_set_gamepak_ws(u16 val);
+
+uint8_t bi_persist_read(u16 addr, u8* pOut, u32 len);
 void bi_lock_regs();
 void bi_unlock_regs();
 void bi_dma_mem(void *src, void *dst, int len);

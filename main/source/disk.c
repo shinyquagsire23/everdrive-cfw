@@ -3,6 +3,7 @@
 #include "sys.h"
 #include "bios.h"
 #include "disk.h"
+#include "mgba.h"
 
 #define GBARAM_PREV_CARDTYPE (*(vu32*)0x080000D0)
 
@@ -428,7 +429,6 @@ u8 diskWrite(u32 sd_addr, void *src, u16 slen) {
     u16 i;
     u16 u;
     u32 saddr = sd_addr;
-
 
     resp = diskCloseRW();
     if (resp)return resp;
