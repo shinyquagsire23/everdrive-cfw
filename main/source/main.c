@@ -233,11 +233,9 @@ void save_backup_to_sd()
     char tmp[0x100];
 
     // Read registery
-    res = f_open(&file, "/GBASYS/sys/test_registery.dat", FA_OPEN_EXISTING | FA_READ);
+    res = f_open(&file, "/GBASYS/sys/cfw_registery.dat", FA_OPEN_EXISTING | FA_READ);
     if(res == FR_OK)
     {
-        video_printf("Read...\n");
-
         res = f_read(&file, &loading_rominfo, sizeof(loading_rominfo), &btx);
         if(res != FR_OK) {
             video_printf("Error while reading, %x\n", res);
@@ -308,6 +306,20 @@ void save_backup_to_sd()
             offs += btx;
         }
         //video_printf("%x %x %x\n", offs, to_write, a_bram_saveLengths[loading_rominfo.titleinfo.save_type]);
+
+        f_close(&file);
+    }
+
+    // ruin the CRC and write back
+    loading_rominfo.titleinfo.gamecode = 0;
+
+    res = f_open(&file, "/GBASYS/sys/cfw_registery.dat", FA_CREATE_ALWAYS | FA_WRITE);
+    if(res == FR_OK)
+    {
+        res = f_write(&file, &loading_rominfo, sizeof(loading_rominfo), &btx);
+        if(res != FR_OK) {
+            video_printf("Error while writing, %x\n", res);
+        }
 
         f_close(&file);
     }
@@ -495,7 +507,7 @@ void menu_launch_selected()
 
     // TODO: GBASYS/sys/registery.dat [char * 0x170 fullpath] [u32 code] [u32 unk] [char * 2 unk] [char * 0xC title name] [u16 unk] [u32 unk] [u32 unk] [u16 unk] [u16 unk] [u32 unk] [u32 crc32]
 
-    res = f_open(&file, "/GBASYS/sys/test_registery.dat", FA_CREATE_ALWAYS | FA_WRITE);
+    res = f_open(&file, "/GBASYS/sys/cfw_registery.dat", FA_CREATE_ALWAYS | FA_WRITE);
     if(res == FR_OK)
     {
         video_printf("Write...\n");
@@ -524,7 +536,7 @@ void menu_launch_selected()
         {
             res = f_read(&file, tmp, sizeof(tmp), &btx);
             if(res != FR_OK) {
-                video_printf("Error while reading romcfg, %x\n", res);
+                video_printf("Error while reading save, %x\n", res);
                 break;
             }
 
@@ -556,6 +568,38 @@ void menu_launch_selected()
         //video_printf("%x %x %x\n", offs, to_read, a_bram_saveLengths[loading_rominfo.titleinfo.save_type]);
 
         f_close(&file);
+    }
+    else
+    {
+        memset(tmp, 0xFF, sizeof(tmp));
+
+        while (offs < to_read)
+        {
+            if (loading_rominfo.titleinfo.save_type == DB_SAV_EEP)
+            {
+                bi_eep_write(tmp, offs, sizeof(tmp));
+            }
+            else if (loading_rominfo.titleinfo.save_type == DB_SAV_SRM)
+            {
+                bi_sram_write(tmp, offs, sizeof(tmp));
+            }
+            else if (loading_rominfo.titleinfo.save_type == DB_SAV_FLA64 || loading_rominfo.titleinfo.save_type == DB_SAV_FLA128)
+            {
+                if (offs >= 0x10000)
+                {
+                    bi_flash_set_bank(1);
+                    bi_flash_write(tmp, offs - 0x10000, sizeof(tmp));
+                }
+                else
+                {
+                    bi_flash_set_bank(0);
+                    bi_flash_write(tmp, offs, sizeof(tmp));
+                }
+                
+            }
+
+            offs += btx;
+        }
     }
 }
 
