@@ -222,6 +222,97 @@ void fs_init()
     strcpy(menu_curdir, "/");
 }
 
+void save_backup_to_sd()
+{
+    FIL file = {0};
+    
+    UINT btx = 0;
+    int res;
+
+    char fname[64];
+    char tmp[0x100];
+
+    // Read registery
+    res = f_open(&file, "/GBASYS/sys/test_registery.dat", FA_OPEN_EXISTING | FA_READ);
+    if(res == FR_OK)
+    {
+        video_printf("Read...\n");
+
+        res = f_read(&file, &loading_rominfo, sizeof(loading_rominfo), &btx);
+        if(res != FR_OK) {
+            video_printf("Error while reading, %x\n", res);
+        }
+
+        f_close(&file);
+
+        if (btx != sizeof(loading_rominfo))
+        {
+            return;
+        }
+    }
+    else
+    {
+        return;
+    }
+
+    // Check if the CRC is valid I guess
+    u32 compare_crc = 0;
+    crc32(&loading_rominfo, sizeof(loading_rominfo) - sizeof(u32), &compare_crc);
+
+    if (loading_rominfo.crc != compare_crc)
+        return;
+
+    if (loading_rominfo.titleinfo.rtc_enabled)
+        bi_rtc_on();
+
+    bi_set_save_type(BI_SAV_SRM);
+
+    // Get just the filename
+    char* loading_fname = strrchr(loading_rominfo.fullpath, '/');
+    if (!loading_fname) {
+        loading_fname = loading_rominfo.fullpath;
+    }
+    else
+    {
+        loading_fname++;
+    }
+
+    // Strip the extension
+    strncpy(fname, loading_fname, 64);
+    char* ext = strrchr(fname, '.');
+    if (ext && ext != fname)
+    {
+        *ext = 0;
+    }
+
+    // Load the save file
+    u32 offs = 0;
+    u32 to_write = a_bram_saveLengths[loading_rominfo.titleinfo.save_type]; // TODO check oob
+    snprintf(tmp, sizeof(tmp), "/GBASYS/save/%s%s", fname, bram_save_ext(loading_rominfo.titleinfo.save_type));
+
+    video_printf("Write %s...\n", tmp);
+
+    res = f_open(&file, tmp, FA_CREATE_ALWAYS | FA_WRITE);
+    if(res == FR_OK)
+    {
+        while (offs < to_write)
+        {
+            bi_sram_read(tmp, offs, sizeof(tmp));
+
+            res = f_write(&file, tmp, sizeof(tmp), &btx);
+            if(res != FR_OK) {
+                video_printf("Error while writing save, %x\n", res);
+                break;
+            }
+
+            offs += btx;
+        }
+        //video_printf("%x %x %x\n", offs, to_write, a_bram_saveLengths[loading_rominfo.titleinfo.save_type]);
+
+        f_close(&file);
+    }
+}
+
 void menu_launch_selected()
 {
     FIL file = {0};
@@ -491,6 +582,9 @@ int main(void)
 
     fs_init();
     video_dirty = 1;
+
+    //video_mode_singlebuffer();
+    save_backup_to_sd();
 
 #if 0
     u8 __attribute((aligned(16))) tmp[16];

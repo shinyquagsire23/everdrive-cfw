@@ -501,9 +501,9 @@ void bi_set_eep_size(u8 size) {
 
 void bi_sram_read(void *dst, u32 offset, u32 len) {
 
-    u8 *src8 = (u8 *) (SRAM_ADDR + offset % 65536);
+    u8 *src8 = (u8 *) (SRAM_ADDR + (offset % 0x10000));
     u8 *dst8 = dst;
-    bi_set_ram_bank(offset / 65536);
+    bi_set_ram_bank(offset / 0x10000);
     while (len--)*dst8++ = *src8++;
 
     bi_set_ram_bank(0);
