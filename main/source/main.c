@@ -146,11 +146,10 @@ void crc32(const void *data, size_t n_bytes, uint32_t* crc) {
     *crc = table[(uint8_t)*crc ^ ((uint8_t*)data)[i]] ^ *crc >> 8;
 }
 
-gba_registry_t loading_rominfo;
+gba_registry_t loading_rominfo __attribute((aligned(16)));
 
 FATFS fatfs __attribute((aligned(16))) = {0};
 char menu_curdir[64];
-char menu_boot_sel[64];
 int menu_cur_sel = 0;
 u8 fs_initted = 0;
 u8 menu_boot_sel_is_dir = 0;
@@ -168,6 +167,8 @@ const char* bram_save_ext(u8 type)
         case DB_SAV_FLA64:
         case DB_SAV_FLA128:
             return ".fla";
+        default:
+            return ".sav";
     }
 }
 
@@ -318,10 +319,8 @@ void menu_launch_selected()
                 mgba_printf(MGBA_LOG_ERROR, "%x %x\n", entry[0], entry[1]);
 
                 u8 sav_type = entry[1] & DB_SAV_MASK;
-                u8 ed_sav_type = bram_to_ed[sav_type];
 
                 loading_rominfo.titleinfo.save_type = sav_type;
-                bi_set_save_type(ed_sav_type);
 
                 if (entry[1] & DB_IS_32MIB) {
                     //TODO
@@ -347,11 +346,11 @@ void menu_launch_selected()
     }
 
     // Reuse memory here
-    char tmp[64]; // TODO sizes
+    char tmp[0x100]; // TODO sizes
     snprintf(tmp, sizeof(tmp), "/GBASYS/sys/romcfg/%s.dat", fname);
 
     // GBASYS/sys/romcfg/*.dat, [u16 RTC en override] [u16 save override]
-    res = f_open(&file, menu_boot_sel, FA_OPEN_EXISTING | FA_READ);
+    res = f_open(&file, tmp, FA_OPEN_EXISTING | FA_READ);
     if(res == FR_OK)
     {
         u16 entry[2];
@@ -373,10 +372,8 @@ void menu_launch_selected()
         if (entry[1])
         {
             u8 sav_type = entry[1] & DB_SAV_MASK;
-            u8 ed_sav_type = bram_to_ed[sav_type];
 
             loading_rominfo.titleinfo.save_type = sav_type;
-            bi_set_save_type(ed_sav_type);
         }
 
         f_close(&file);
@@ -403,6 +400,8 @@ void menu_launch_selected()
     if (loading_rominfo.titleinfo.rtc_enabled)
         bi_rtc_on();
 
+    bi_set_save_type(bram_to_ed[loading_rominfo.titleinfo.save_type]);
+
     // TODO: GBASYS/sys/registery.dat [char * 0x170 fullpath] [u32 code] [u32 unk] [char * 2 unk] [char * 0xC title name] [u16 unk] [u32 unk] [u32 unk] [u16 unk] [u16 unk] [u32 unk] [u32 crc32]
 
     res = f_open(&file, "/GBASYS/sys/test_registery.dat", FA_CREATE_ALWAYS | FA_WRITE);
@@ -417,6 +416,56 @@ void menu_launch_selected()
 
         f_close(&file);
     }
+
+    // Load the save file
+    u32 offs = 0;
+    u32 to_read = a_bram_saveLengths[loading_rominfo.titleinfo.save_type]; // TODO check oob
+    snprintf(tmp, sizeof(tmp), "/GBASYS/save/%s%s", fname, bram_save_ext(loading_rominfo.titleinfo.save_type));
+
+    video_printf("Load %s...\n", tmp);
+    // GBASYS/sys/romcfg/*.dat, [u16 RTC en override] [u16 save override]
+    res = f_open(&file, tmp, FA_OPEN_EXISTING | FA_READ);
+    if(res == FR_OK)
+    {
+        to_read = min(to_read, f_size(&file));
+
+        while (offs < to_read)
+        {
+            res = f_read(&file, tmp, sizeof(tmp), &btx);
+            if(res != FR_OK) {
+                video_printf("Error while reading romcfg, %x\n", res);
+                break;
+            }
+
+            if (loading_rominfo.titleinfo.save_type == DB_SAV_EEP)
+            {
+                bi_eep_write(tmp, offs, sizeof(tmp));
+            }
+            else if (loading_rominfo.titleinfo.save_type == DB_SAV_SRM)
+            {
+                bi_sram_write(tmp, offs, sizeof(tmp));
+            }
+            else if (loading_rominfo.titleinfo.save_type == DB_SAV_FLA64 || loading_rominfo.titleinfo.save_type == DB_SAV_FLA128)
+            {
+                if (offs >= 0x10000)
+                {
+                    bi_flash_set_bank(1);
+                    bi_flash_write(tmp, offs - 0x10000, sizeof(tmp));
+                }
+                else
+                {
+                    bi_flash_set_bank(0);
+                    bi_flash_write(tmp, offs, sizeof(tmp));
+                }
+                
+            }
+
+            offs += btx;
+        }
+        //video_printf("%x %x %x\n", offs, to_read, a_bram_saveLengths[loading_rominfo.titleinfo.save_type]);
+
+        f_close(&file);
+    }
 }
 
 int main(void) 
@@ -425,6 +474,8 @@ int main(void)
     irqEnable(IRQ_VBLANK);
 
     mgba_open();
+
+    memset(&loading_rominfo, 0, sizeof(loading_rominfo));
 
     //GBA_WAITCNT = 0;//0x4317;
 
