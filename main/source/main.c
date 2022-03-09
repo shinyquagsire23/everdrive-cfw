@@ -14,8 +14,51 @@
 #include "video.h"
 #include "mgba.h"
 
+// [char * 0x170 fullpath] [u32 code] [u32 unk] [char * 2 unk] [char * 0xC title name] [u16 unk] [u32 unk] [u32 unk] [u16 unk] [u16 unk] [u32 unk] [u32 crc32]
+
+typedef struct gba_cartheader_t
+{
+    u32 entry;
+    char nintendo_logo[156];
+    char title_name[12];
+    u32 gamecode;
+    u16 maker_code;
+    u8 fixed;
+    u8 unit_code;
+    u8 dacs;
+    u8 reserved[7];
+    u8 sw_version;
+    u8 checksum;
+} gba_cartheader_t;
+
+typedef struct gba_titleinfo_t
+{
+    u32 gamecode; // 0xAC
+    u32 unk1; // pkmn ruby is 0x8000?
+    u16 maker_code; // 0xB0
+    char title_name[0xC]; // 0xA0
+    u16 unk4; // padding?
+    u8 cartheader_crc; // 0xBD
+    u8 save_type; // bram type, not ED
+    u8 rtc_enabled;
+    u8 is_emulated;
+} gba_titleinfo_t;
+
+typedef struct gba_registry_t
+{
+    char fullpath[0x144];
+    gba_titleinfo_t titleinfo;
+    u32 unk6;
+    u16 unk7;
+    u16 unk8;
+    u32 unk9;
+    u32 crc;
+} gba_registry_t;
+
 // bram-db.dat to bi_set_save_type types
 const u8 bram_to_ed[8] = {0,BI_SAV_EEP,BI_SAV_SRM,BI_SAV_FLA64,BI_SAV_FLA128,0,0,0,0};
+
+const u32 a_bram_saveLengths[5] = {0, 0x2000, 0x8000, 0x10000, 0x20000};
 
 // bram-db.dat doesn't include RTC stuff :/
 const char* bram_rtc_list = "U3IPU3IEU32PU32EU3IJBLVJBLJJBPEJAXVJAXPJBPEEBPEPBPESAXVPAXVEAXVSAXVIAXPPAXPEAXPSAXPIBR4JBKAJU33JU3IP\x00\x00\x00\x00";
@@ -88,6 +131,23 @@ void sio_handle()
         iprintf("%c", v);
 }
 
+uint32_t crc32_for_byte(uint32_t r) {
+  for(int j = 0; j < 8; ++j)
+    r = (r & 1? 0: (uint32_t)0xEDB88320L) ^ r >> 1;
+  return r ^ (uint32_t)0xFF000000L;
+}
+
+void crc32(const void *data, size_t n_bytes, uint32_t* crc) {
+  static uint32_t table[0x100];
+  if(!*table)
+    for(size_t i = 0; i < 0x100; ++i)
+      table[i] = crc32_for_byte(i);
+  for(size_t i = 0; i < n_bytes; ++i)
+    *crc = table[(uint8_t)*crc ^ ((uint8_t*)data)[i]] ^ *crc >> 8;
+}
+
+gba_registry_t loading_rominfo;
+
 FATFS fatfs __attribute((aligned(16))) = {0};
 char menu_curdir[64];
 char menu_boot_sel[64];
@@ -139,8 +199,8 @@ void menu_draw()
 
             if (menu_cur_sel == iter)
             {
-                strcpy(menu_boot_sel, menu_curdir);
-                strcat(menu_boot_sel, fno.fname);
+                strcpy(loading_rominfo.fullpath, menu_curdir);
+                strcat(loading_rominfo.fullpath, fno.fname);
                 menu_boot_sel_is_dir = is_dir;
             }
 
@@ -158,7 +218,7 @@ void fs_init()
     int res = f_mount(&fatfs, "sdmc:", 1);
     fs_initted = (res == FR_OK);
 
-    strcpy(menu_curdir, "sdmc:/");
+    strcpy(menu_curdir, "/");
 }
 
 void menu_launch_selected()
@@ -169,10 +229,34 @@ void menu_launch_selected()
     UINT btx = 0;
     int res;
 
-    //const char* to_load = "sdmc:/GBASYS/GBAOS.gba";
-    const char* to_load = menu_boot_sel;//"sdmc:/Ruby.gba";
-    video_printf("%s\n", to_load);
-    //const char* to_load = "sdmc:/gba-switch-bios_mb.gba";
+    char fname[64];
+
+    // Get just the filename
+    char* loading_fname = strrchr(loading_rominfo.fullpath, '/');
+    if (!loading_fname) {
+        loading_fname = loading_rominfo.fullpath;
+    }
+    else
+    {
+        loading_fname++;
+    }
+
+    // Strip the extension
+    strncpy(fname, loading_fname, 64);
+    char* ext = strrchr(fname, '.');
+    if (ext && ext != fname)
+    {
+        *ext = 0;
+    }
+
+    // Pre-set these
+    loading_rominfo.titleinfo.rtc_enabled = 0;
+    loading_rominfo.titleinfo.save_type = 0;
+
+    //const char* to_load = "/GBASYS/GBAOS.gba";
+    const char* to_load = loading_rominfo.fullpath;//"/Ruby.gba";
+    video_printf("%s %s\n", to_load, fname);
+    //const char* to_load = "/gba-switch-bios_mb.gba";
 
     res = f_open(&file, to_load, FA_OPEN_EXISTING | FA_READ);
     if(res == FR_OK)
@@ -189,7 +273,7 @@ void menu_launch_selected()
         {
             res = f_read(&file, (void*)(0x08000000 + read), chunk_size, &btx);
             if(res != FR_OK) {
-                video_printf("Error while reading, %x\n", res);
+                video_printf("Error while reading ROM, %x\n", res);
                 while (1);
                 break;
             }
@@ -215,7 +299,7 @@ void menu_launch_selected()
     }
 
     // TODO: Binary search for speed
-    res = f_open(&file, "sdmc:/GBASYS/sys/bram-db.dat", FA_OPEN_EXISTING | FA_READ);
+    res = f_open(&file, "/GBASYS/sys/bram-db.dat", FA_OPEN_EXISTING | FA_READ);
     if(res == FR_OK)
     {
         uint32_t entry[2];
@@ -227,7 +311,7 @@ void menu_launch_selected()
         {
             res = f_read(&file, &entry, 5, &btx);
             if(res != FR_OK) {
-                video_printf("Error while reading, %x\n", res);
+                video_printf("Error while reading bram-db, %x\n", res);
                 break;
             }
             if (*(u32*)0x080000AC == entry[0]) {
@@ -235,6 +319,8 @@ void menu_launch_selected()
 
                 u8 sav_type = entry[1] & DB_SAV_MASK;
                 u8 ed_sav_type = bram_to_ed[sav_type];
+
+                loading_rominfo.titleinfo.save_type = sav_type;
                 bi_set_save_type(ed_sav_type);
 
                 if (entry[1] & DB_IS_32MIB) {
@@ -246,18 +332,90 @@ void menu_launch_selected()
         f_close(&file);
     }
 
-    // TODO: GBASYS/sys/romcfg/*.dat, [u16 RTC en override] [u16 save override]
-    // TODO: GBASYS/sys/registery.dat [char * 0x170 fullpath] [u32 code] [u32 unk] [char * 2 unk] [char * 0xC title name] [u16 unk] [u32 unk] [u32 unk] [u16 unk] [u16 unk] [u32 unk] [u32 crc32]
+    gba_cartheader_t* pCartHeader = (gba_cartheader_t*)0x08000000;
 
     // Check if the RTC needs enabling
     u32* rtc_list = (u32*)bram_rtc_list;
     while (1)
     {
         if (!*rtc_list) break;
-        if (*rtc_list == *(u32*)0x080000AC) {
-            bi_rtc_on();
+        if (*rtc_list == pCartHeader->gamecode) {
+            loading_rominfo.titleinfo.rtc_enabled = 1;
+            break;
         }
         rtc_list++;
+    }
+
+    // Reuse memory here
+    char tmp[64]; // TODO sizes
+    snprintf(tmp, sizeof(tmp), "/GBASYS/sys/romcfg/%s.dat", fname);
+
+    // GBASYS/sys/romcfg/*.dat, [u16 RTC en override] [u16 save override]
+    res = f_open(&file, menu_boot_sel, FA_OPEN_EXISTING | FA_READ);
+    if(res == FR_OK)
+    {
+        u16 entry[2];
+        entry[0] = 0;
+        entry[1] = 0;
+
+        res = f_read(&file, &entry, sizeof(u16)*2, &btx);
+        if(res != FR_OK) {
+            video_printf("Error while reading romcfg, %x\n", res);
+        }
+
+        // RTC override
+        if (entry[0])
+        {
+            loading_rominfo.titleinfo.rtc_enabled = 1;
+        }
+
+        // Save override
+        if (entry[1])
+        {
+            u8 sav_type = entry[1] & DB_SAV_MASK;
+            u8 ed_sav_type = bram_to_ed[sav_type];
+
+            loading_rominfo.titleinfo.save_type = sav_type;
+            bi_set_save_type(ed_sav_type);
+        }
+
+        f_close(&file);
+    }
+
+    
+
+    loading_rominfo.titleinfo.gamecode = pCartHeader->gamecode;
+    loading_rominfo.titleinfo.maker_code = pCartHeader->maker_code;
+    loading_rominfo.titleinfo.unk1 = 0x8000;
+    strncpy(loading_rominfo.titleinfo.title_name, pCartHeader->title_name, 0xC);
+    loading_rominfo.titleinfo.unk4 = 0;
+    loading_rominfo.titleinfo.cartheader_crc = pCartHeader->checksum;
+    loading_rominfo.titleinfo.is_emulated = 0;
+
+    loading_rominfo.unk6 = 0x10000;
+    loading_rominfo.unk7 = 0x1;
+    loading_rominfo.unk8 = 0x1;
+    loading_rominfo.unk9 = 0;
+    loading_rominfo.crc = 0;
+
+    crc32(&loading_rominfo, sizeof(loading_rominfo) - sizeof(u32), &loading_rominfo.crc);
+
+    if (loading_rominfo.titleinfo.rtc_enabled)
+        bi_rtc_on();
+
+    // TODO: GBASYS/sys/registery.dat [char * 0x170 fullpath] [u32 code] [u32 unk] [char * 2 unk] [char * 0xC title name] [u16 unk] [u32 unk] [u32 unk] [u16 unk] [u16 unk] [u32 unk] [u32 crc32]
+
+    res = f_open(&file, "/GBASYS/sys/test_registery.dat", FA_CREATE_ALWAYS | FA_WRITE);
+    if(res == FR_OK)
+    {
+        video_printf("Write...\n");
+
+        res = f_write(&file, &loading_rominfo, sizeof(loading_rominfo), &btx);
+        if(res != FR_OK) {
+            video_printf("Error while writing, %x\n", res);
+        }
+
+        f_close(&file);
     }
 }
 
@@ -343,7 +501,7 @@ int main(void)
             f_getcwd(menu_curdir+5, sizeof(menu_curdir)-5);
         }
         if (kd & KEY_A && menu_boot_sel_is_dir) {
-            f_chdir(menu_boot_sel);
+            f_chdir(loading_rominfo.fullpath);
             menu_cur_sel = 0;
             f_getcwd(menu_curdir+5, sizeof(menu_curdir)-5);
         }
