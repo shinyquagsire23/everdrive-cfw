@@ -6,6 +6,7 @@ everdrive-cfw is a custom firmware which can replace `GBAOS.gba` on Everdrive GB
 
  - loader_mb: For use with [STLink v2 multiboot](https://github.com/shinyquagsire23/stlink_gba_multiboot). Replace `GBAOS.gba` with `loader_mb_mb.gba` to chainload `main` via link port.
  - main: Replaces `GBAOS.gba`
+ - `build_tools/generate_fonts/font.vwflen.bin` and `build_tools/generate_fonts/font.img.bin`: Place these in `GBASYS/`
 
 ## Building
 

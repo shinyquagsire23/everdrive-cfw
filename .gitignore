@@ -5,3 +5,9 @@ loader_mb/*.gba
 *.elf
 *.sav
 .DS_Store
+buildtools/generate_fonts/*.c
+buildtools/generate_fonts/*.h
+buildtools/generate_fonts/*.hpp
+buildtools/generate_fonts/font.png
+buildtools/generate_fonts/font.png.orig.png
+buildtools/generate_fonts/font.pal.bin
