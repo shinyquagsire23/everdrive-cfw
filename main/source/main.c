@@ -646,33 +646,38 @@ int main(void)
 
 #if 0
     u8 __attribute((aligned(16))) tmp[16];
-    u16 addr = 0x8000;
+    u16 addr = 0x0000;
+
+    bi_rtc_off();
+    f_unmount("sdmc:");
+    fs_init();
     
     UINT btx = 0;
     FIL file = {0};
-    int res = f_open(&file, "sdmc:/read_eeprom.bin", FA_CREATE_ALWAYS | FA_WRITE);
+    int res = f_open(&file, "read_eeprom_2.bin", FA_CREATE_ALWAYS | FA_WRITE);
     if(res == FR_OK)
     {
         video_printf("Write...\n");
-        for (int i = 0; i < 0x200/16; i++)
+        for (int i = 0; i < 0x8200/16; i++)
         {
+            memset(tmp, 0, sizeof(tmp));
             bi_persist_read(addr, tmp, 16);
+            if (!i)
+            {
+                video_printf("%02x %02x %02x %02x\n", tmp[0], tmp[1], tmp[2], tmp[3]);
+            }
 
             res = f_write(&file, tmp, 16, &btx);
             if(res != FR_OK) {
-                video_printf("Error while reading, %x\n", res);
+                video_printf("Error while writing out, %x %x\n", res, addr);
                 break;
             }
+            f_sync(&file);
             
             addr += 16;
         }
         f_close(&file);
-    }
-
-    res = f_open(&file, "sdmc:/read_eeprom.bin", FA_OPEN_EXISTING | FA_READ);
-    if(res == FR_OK)
-    {
-        f_close(&file);
+        video_printf("Done.\n");
     }
 
     f_unmount("sdmc:");

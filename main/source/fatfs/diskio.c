@@ -22,6 +22,8 @@
 #define SDMMC_DEFAULT_BLOCKLEN (512)
 #define SDHC_BLOCK_COUNT_MAX (1)
 
+u8 __attribute((aligned(16))) disk_tmp_buffer[0x200];
+
 /*-----------------------------------------------------------------------*/
 /* Get Drive Status                                                      */
 /*-----------------------------------------------------------------------*/
@@ -96,16 +98,16 @@ DRESULT disk_read (
     bool moved_buf = false;
     if((uintptr_t) buff & 7) 
     {
-        buffer = memalign(8, SDMMC_DEFAULT_BLOCKLEN * SDHC_BLOCK_COUNT_MAX);
-        if(!buffer)
-            return RES_ERROR;
+        buffer = disk_tmp_buffer;//memalign(8, SDMMC_DEFAULT_BLOCKLEN * SDHC_BLOCK_COUNT_MAX);
+        //if(!buffer)
+        //    return RES_ERROR;
         moved_buf = true;
     }
 
     while(count)
     {
         u32 work = min(count, SDHC_BLOCK_COUNT_MAX);
-        if (buffer >= 0x08000000 && buffer < 0x0E000000)
+        if (!moved_buf && buffer >= 0x08000000 && buffer < 0x0E000000)
         {
             work = min(count, 512);
         }
@@ -119,8 +121,8 @@ DRESULT disk_read (
             {
                 if(diskRead(sector, buffer, work) != 0)
                 {
-                    if(moved_buf)
-                        free(buffer);
+                    //if(moved_buf)
+                    //    free(buffer);
                     return RES_ERROR;
                 }
                 break;
@@ -128,15 +130,15 @@ DRESULT disk_read (
         }
         //iprintf("%x\n", buff);
         if(moved_buf) 
-            memcpy32(buff, buffer, work * SDMMC_DEFAULT_BLOCKLEN);
+            memcpy(buff, buffer, work * SDMMC_DEFAULT_BLOCKLEN);
 
         sector += work;
         count -= work;
         buff += work * SDMMC_DEFAULT_BLOCKLEN;
     }
 
-    if(moved_buf)
-        free(buffer);
+    //if(moved_buf)
+    //    free(buffer);
 
     return RES_OK;
 }
@@ -166,9 +168,9 @@ DRESULT disk_write (
     bool moved_buf = false;
     //if((uintptr_t) buff & 7) 
     {
-        buffer = memalign(8, SDMMC_DEFAULT_BLOCKLEN * SDHC_BLOCK_COUNT_MAX);
-        if(!buffer)
-            return RES_ERROR;
+        buffer = disk_tmp_buffer;//memalign(8, SDMMC_DEFAULT_BLOCKLEN * SDHC_BLOCK_COUNT_MAX);
+        //if(!buffer)
+        //    return RES_ERROR;
         moved_buf = true;
     }
 
@@ -177,7 +179,7 @@ DRESULT disk_write (
         u32 work = min(count, SDHC_BLOCK_COUNT_MAX);
 
         if(moved_buf) 
-            memcpy32(buffer, buff, work * SDMMC_DEFAULT_BLOCKLEN);
+            memcpy(buffer, buff, work * SDMMC_DEFAULT_BLOCKLEN);
         else        
             buffer = (void*)buff;
 
@@ -187,8 +189,8 @@ DRESULT disk_write (
             {
                 if(diskWrite(sector, buffer, work) != 0)
                 {
-                    if(moved_buf)
-                        free(buffer);
+                    //if(moved_buf)
+                    //    free(buffer);
                     return RES_ERROR;
                 }
                 break;
@@ -199,8 +201,8 @@ DRESULT disk_write (
         count -= work;
         buff += work * SDMMC_DEFAULT_BLOCKLEN;
     }
-    if(moved_buf) 
-        free(buffer);
+    //if(moved_buf) 
+    //    free(buffer);
 
     return RES_OK;
 }

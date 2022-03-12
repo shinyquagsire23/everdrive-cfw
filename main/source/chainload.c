@@ -71,6 +71,6 @@ void sio_handle()
 
     sio_waiting = 0;
     char v = xfer32(0);
-    if (v && v != 0xFF)
-        iprintf("%c", v);
+    //if (v && v != 0xFF)
+    //    iprintf("%c", v);
 }
