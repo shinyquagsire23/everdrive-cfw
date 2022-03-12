@@ -1,5 +1,7 @@
 # everdrive-cfw
 
+![Screenshot](docs/images/screenshot.png)
+
 everdrive-cfw is a custom firmware which can replace `GBAOS.gba` on Everdrive GBA flashcarts. It is currently incomplete and mostly experimental. Uses a subset of ChaN's `fatfs` along with the [official GBA Everdrive IO library](https://krikzz.com/pub/support/everdrive-gba/development/).
 
 ## Components
