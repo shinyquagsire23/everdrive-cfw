@@ -18,6 +18,7 @@
 #include "fatfs/ff.h"
 #include "video.h"
 #include "mgba.h"
+#include "rtc.h"
 
 // [char * 0x170 fullpath] [u32 code] [u32 unk] [char * 2 unk] [char * 0xC title name] [u16 unk] [u32 unk] [u32 unk] [u16 unk] [u16 unk] [u32 unk] [u32 crc32]
 
@@ -61,7 +62,7 @@ typedef struct gba_registry_t
 } gba_registry_t;
 
 // bram-db.dat to bi_set_save_type types
-const u8 bram_to_ed[8] = {0,BI_SAV_EEP,BI_SAV_SRM,BI_SAV_FLA64,BI_SAV_FLA128,0,0,0,0};
+const u8 bram_to_ed[8] = {0,BI_SAV_EEP,BI_SAV_SRM,BI_SAV_FLA64,BI_SAV_FLA128,0,0,0};
 
 const u32 a_bram_saveLengths[5] = {0, 0x2000, 0x8000, 0x10000, 0x20000};
 
@@ -121,10 +122,22 @@ void menu_draw()
 
     video_clear();
 
+    rtc_data_t rtc_data;
+    memset(&rtc_data, 0, sizeof(rtc_data));
+    rtc_enable();
+    rtc_get(&rtc_data);
+    video_printf("#{ci:2}%u/%u/20%02u, %02u:%02u:%02u\n", rtc_data.month, rtc_data.day, rtc_data.year, rtc_data.hours, rtc_data.minutes, rtc_data.secs);
+
+    /*rtc_data.year = 22;
+    rtc_data.month = 3;
+    rtc_data.day = 12;
+    rtc_data.weekday = 6;
+    rtc_set(&rtc_data);*/
+
     if (!menu_scroll)
-        video_printf("\n#{ci:1}%s\n", menu_curdir);
+        video_printf("#{ci:1}%s\n", menu_curdir);
     else
-        video_printf("\n#{ci:2;X:12}^^^\n");
+        video_printf("#{ci:2;X:12}^^^\n");
 
     res = f_opendir(&dir, ".");
     int iter = 0;
@@ -204,6 +217,46 @@ void fs_init()
     strcpy(menu_curdir, "/");
 }
 
+UINT fs_simpleread(const char* fpath, void* pOut, size_t len)
+{
+    FIL file = {0};
+    UINT btx = 0;
+
+    // Read registery
+    int res = f_open(&file, fpath, FA_OPEN_EXISTING | FA_READ);
+    if(res == FR_OK)
+    {
+        res = f_read(&file, pOut, len, &btx);
+        if(res != FR_OK) {
+            video_printf("Error while reading, %x\n", res);
+        }
+
+        f_close(&file);
+    }
+
+    return btx;
+}
+
+UINT fs_simplewrite(const char* fpath, void* pData, size_t len)
+{
+    FIL file = {0};
+    UINT btx = 0;
+
+    // Read registery
+    int res = f_open(&file, fpath, FA_CREATE_ALWAYS | FA_WRITE);
+    if(res == FR_OK)
+    {
+        res = f_write(&file, pData, len, &btx);
+        if(res != FR_OK) {
+            video_printf("Error while reading, %x\n", res);
+        }
+
+        f_close(&file);
+    }
+
+    return btx;
+}
+
 void save_backup_to_sd()
 {
     FIL file = {0};
@@ -214,26 +267,8 @@ void save_backup_to_sd()
     char fname[64];
     char tmp[0x80];
 
-    // Read registery
-    res = f_open(&file, "/GBASYS/sys/cfw_registery.dat", FA_OPEN_EXISTING | FA_READ);
-    if(res == FR_OK)
-    {
-        res = f_read(&file, &loading_rominfo, sizeof(loading_rominfo), &btx);
-        if(res != FR_OK) {
-            video_printf("Error while reading, %x\n", res);
-        }
-
-        f_close(&file);
-
-        if (btx != sizeof(loading_rominfo))
-        {
-            return;
-        }
-    }
-    else
-    {
+    if (fs_simpleread("/GBASYS/sys/cfw_registery.dat", &loading_rominfo, sizeof(loading_rominfo)) != sizeof(loading_rominfo))
         return;
-    }
 
     // Check if the CRC is valid I guess
     u32 compare_crc = 0;
@@ -241,9 +276,6 @@ void save_backup_to_sd()
 
     if (loading_rominfo.crc != compare_crc)
         return;
-
-    if (loading_rominfo.titleinfo.rtc_enabled)
-        bi_rtc_on();
 
     bi_set_save_type(BI_SAV_SRM);
 
@@ -272,6 +304,10 @@ void save_backup_to_sd()
 
     video_printf("Write %s...\n", tmp);
 
+    // Weird bug?
+    f_unmount("sdmc:");
+    fs_init();
+
     res = f_open(&file, tmp, FA_CREATE_ALWAYS | FA_WRITE);
     if(res == FR_OK)
     {
@@ -296,30 +332,27 @@ void save_backup_to_sd()
         video_printf("Error while writing save, %x\n", res);
     }
 
+    // Weird bug?
+    f_unmount("sdmc:");
+    fs_init();
+
     // ruin the CRC and write back
     loading_rominfo.titleinfo.gamecode = 0;
 
-    res = f_open(&file, "/GBASYS/sys/cfw_registery.dat", FA_CREATE_ALWAYS | FA_WRITE);
-    if(res == FR_OK)
+    if (fs_simplewrite("/GBASYS/sys/cfw_registery.dat", &loading_rominfo, sizeof(loading_rominfo)) != sizeof(loading_rominfo))
     {
-        res = f_write(&file, &loading_rominfo, sizeof(loading_rominfo), &btx);
-        if(res != FR_OK) {
-            video_printf("Error while writing, %x\n", res);
-        }
+        video_printf("Error while writing registry\n");
+    }
 
-        f_close(&file);
-    }
-    else
-    {
-        video_printf("Error while writing reg, %x\n", res);
-    }
+    // Weird bug?
+    f_unmount("sdmc:");
+    fs_init();
 }
 
 void menu_launch_selected()
 {
     FIL file = {0};
     
-    FILINFO fno = {0};
     UINT btx = 0;
     int res;
 
@@ -347,9 +380,11 @@ void menu_launch_selected()
     loading_rominfo.titleinfo.rtc_enabled = 0;
     loading_rominfo.titleinfo.save_type = 0;
 
+    // We will be possibly overwriting the space that contains all font glyphs
+    video_use_inbuilt_fonts();
+
     //const char* to_load = "/GBASYS/GBAOS.gba";
     const char* to_load = loading_rominfo.fullpath;//"/Ruby.gba";
-    video_printf("%s %s\n", to_load, fname);
     //const char* to_load = "/gba-switch-bios_mb.gba";
 
     res = f_open(&file, to_load, FA_OPEN_EXISTING | FA_READ);
@@ -490,24 +525,13 @@ void menu_launch_selected()
 
     crc32(&loading_rominfo, sizeof(loading_rominfo) - sizeof(u32), &loading_rominfo.crc);
 
-    if (loading_rominfo.titleinfo.rtc_enabled)
-        bi_rtc_on();
-
     bi_set_save_type(bram_to_ed[loading_rominfo.titleinfo.save_type]);
 
     // TODO: GBASYS/sys/registery.dat [char * 0x170 fullpath] [u32 code] [u32 unk] [char * 2 unk] [char * 0xC title name] [u16 unk] [u32 unk] [u32 unk] [u16 unk] [u16 unk] [u32 unk] [u32 crc32]
 
-    res = f_open(&file, "/GBASYS/sys/cfw_registery.dat", FA_CREATE_ALWAYS | FA_WRITE);
-    if(res == FR_OK)
+    if (fs_simplewrite("/GBASYS/sys/cfw_registery.dat", &loading_rominfo, sizeof(loading_rominfo)) != sizeof(loading_rominfo))
     {
-        video_printf("Write...\n");
-
-        res = f_write(&file, &loading_rominfo, sizeof(loading_rominfo), &btx);
-        if(res != FR_OK) {
-            video_printf("Error while writing, %x\n", res);
-        }
-
-        f_close(&file);
+        video_printf("Error while writing registry\n");
     }
 
     // Load the save file
@@ -550,7 +574,6 @@ void menu_launch_selected()
                     bi_flash_set_bank(0);
                     bi_flash_write(tmp, offs, sizeof(tmp));
                 }
-                
             }
 
             offs += btx;
@@ -606,6 +629,7 @@ int main(void)
 
     bi_init();
     bi_set_rom_bank(0);
+    bi_rtc_on();
 
     //consoleDemoInit();
 
@@ -651,7 +675,7 @@ int main(void)
         f_close(&file);
     }
 
-    f_unmount(&fatfs);
+    f_unmount("sdmc:");
 
     while (1);
 #endif
@@ -740,6 +764,14 @@ int main(void)
             video_printf("\nTest SD Read:\n%08x %08x\n", *(u32*)0x08000000, *(u32*)0x08000004, (void*)0x080000AC);
             //while (1);
             //if (fs_initted)
+
+            f_unmount("sdmc:");
+
+            if (loading_rominfo.titleinfo.rtc_enabled)
+                bi_rtc_on();
+            else
+                bi_rtc_off();
+
             bi_reboot(1);
             while (1);
         }

@@ -3,11 +3,10 @@
 
 #include <tonc_types.h>
 #include <tonc_math.h>
+#include <tonc_core.h>
 
 #include <stdint.h>
 #include <stdbool.h>
-
-#define BIT(x) (1 << (x))
 
 #define max(a, b) \
     ({ __typeof__ (a) _a = (a); \

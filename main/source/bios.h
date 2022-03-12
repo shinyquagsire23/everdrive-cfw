@@ -105,22 +105,49 @@
 
 u8 bi_init();
 void bi_set_gamepak_ws(u16 val);
-
-uint8_t bi_persist_read(u16 addr, u8* pOut, u32 len);
+u16 bi_reg_rd(u16 reg);
+void bi_reg_wr(u16 reg, u16 data);
 void bi_lock_regs();
 void bi_unlock_regs();
 void bi_dma_mem(void *src, void *dst, int len);
-
+u8 bi_sd_wait_f0();
+u8 bi_sd_dma_wr(void *src);
+void bi_sd_read_crc_ram(void *dst);
+u8 bi_sd_dma_to_rom(void *dst, int slen);
+u8 bi_sd_dma_rd(void *dst, int slen);
 void bi_sd_cmd_wr(u8 data);
 u8 bi_sd_cmd_rd();
+u8 bi_sd_cmd_val();
 void bi_sd_dat_wr(u8 data);
+void bi_sd_dat_wr16(u16 data);
 u8 bi_sd_dat_rd();
-u8 bi_sd_dma_rd(void *dst, int slen);
-
 void bi_sd_mode(u8 mode);
 void bi_sd_speed(u8 speed);
-
-void bi_shutdown();
+u8 bi_eep_read(void *dst, u16 addr, u16 len);
+u8 bi_eep_write(void *src, u16 addr, u16 len);
+u8 bi_eep_write_dw(u8 *src, u16 addr);
+u8 bi_eep_read_dw(u8 *dst, u16 addr);
+u16 bi_flash_id();
+void bi_flash_erase_chip();
+void bi_flash_erase_sector(u8 sector);
+void bi_flash_write(void *src, u32 addr, u32 len);
+void bi_flash_set_bank(u8 bank);
+void bi_set_save_type(u8 save_type);
+void bi_set_eep_size(u8 size);
+void bi_sram_read(void *dst, u32 offset, u32 len);
+void bi_sram_write(void *src, u32 offset, u32 len);
+void bi_set_ram_bank(u16 bank);
+u16 bi_get_fpga_ver();
+void bi_persist_init();
+void bi_persist_deinit();
+uint8_t bi_persist_write8(uint8_t val);
+uint8_t bi_persist_read8(uint8_t val);
+uint8_t bi_persist_read(u16 addr, u8* pOut, u32 len);
+void bi_rtc_on();
+void bi_rtc_off() ;
+void bi_set_rom_bank(u8 bank);
+void bi_set_rom_mask(u32 rom_size);
+void bi_reboot(u8 quick_boot);
 
 
 #endif	/* BIOS_H */

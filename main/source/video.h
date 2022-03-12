@@ -18,8 +18,6 @@ extern u8 video_color;
 extern u8 video_whichbuf;
 extern u8 video_dirty;
 
-int draw_char(int x, int y, u8 color, char c);
-
 void video_print(const char* str, int c);
 void video_printf(const char *format, ...);
 
@@ -27,5 +25,6 @@ void video_init();
 void video_clear();
 void video_swap();
 void video_mode_singlebuffer();
+void video_use_inbuilt_fonts();
 
 #endif // _VIDEO_H
