@@ -31,7 +31,7 @@
 #define MGBA_LOG_INFO 3
 #define MGBA_LOG_DEBUG 4
 
-void mgba_printf(int level, const char* string, ...);
+void mgba_printf(const char* string, ...);
 int mgba_open(void);
 void mgba_close(void);
 

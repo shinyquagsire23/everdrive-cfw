@@ -74,13 +74,7 @@ DSTATUS disk_initialize (
     return STA_NODISK;
 }
 
-void memcpy32(u16* dst, u16* src, u32 len)
-{
-    for (u32 i = 0; i < len; i += 2)
-    {
-        *(dst++) = *(src++);
-    }
-}
+extern void memcpy32(u16* dst, u16* src, u32 len);
 
 /*-----------------------------------------------------------------------*/
 /* Read Sector(s)                                                        */

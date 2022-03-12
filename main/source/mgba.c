@@ -31,15 +31,14 @@
 
 u8 mgba_print_on = 0;
 
-void mgba_printf(int level, const char* ptr, ...) {
+void mgba_printf(const char* ptr, ...) {
    if (!mgba_print_on) return;
 
 	va_list args;
-	level &= 0x7;
 	va_start(args, ptr);
 	vsnprintf(REG_DEBUG_STRING, 0x100, ptr, args);
 	va_end(args);
-	*REG_DEBUG_FLAGS = level | 0x100;
+	*REG_DEBUG_FLAGS = MGBA_LOG_ERROR | 0x100;
 }
 
 int mgba_open(void) {

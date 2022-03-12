@@ -1,11 +1,17 @@
+#if 0
 #include <gba_console.h>
 #include <gba_video.h>
 #include <gba_interrupt.h>
 #include <gba_systemcalls.h>
 #include <gba_input.h>
+#endif
+
+#include <tonc.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "utf8.h"
 
 #include "bios.h"
 #include "disk.h"
@@ -82,8 +88,12 @@ gba_registry_t loading_rominfo __attribute((aligned(16)));
 FATFS fatfs __attribute((aligned(16))) = {0};
 char menu_curdir[64];
 int menu_cur_sel = 0;
+int menu_scroll = 0;
+int menu_numents = 0;
 u8 fs_initted = 0;
 u8 menu_boot_sel_is_dir = 0;
+
+#define MENU_NUM_LINES (12)
 
 const char* bram_save_ext(u8 type)
 {
@@ -111,10 +121,18 @@ void menu_draw()
 
     video_clear();
 
-    video_printf("\n%s\n", menu_curdir);
+    if (!menu_scroll)
+        video_printf("\n#{ci:1}%s\n", menu_curdir);
+    else
+        video_printf("\n#{ci:2;X:12}^^^\n");
 
     res = f_opendir(&dir, ".");
     int iter = 0;
+    int pos_y = 20;
+    int scroll_amt = menu_scroll;
+    int num_drawn = 0;
+    int stuff_below = 0;
+    menu_numents = 0;
     if(res == FR_OK)
     {
         while (1)
@@ -124,21 +142,54 @@ void menu_draw()
             if (fno.fname[0] == '.') continue;
             u8 is_dir = fno.fattrib & AM_DIR;
 
-            video_color = 4;
-            video_printf(" %c ", menu_cur_sel == iter ? '>' : ' ');
-            video_color = 2;
-            video_printf("%s%c\n", fno.fname, is_dir ? '/' : ' ');
+            char* ext = utf8rchr(fno.fname, '.');
+            if (ext && ext != fno.fname && !is_dir)
+            {
+                if (strcmp(ext, ".gba"))
+                {
+                    //continue;
+                }
+            }
+
+            //mgba_printf("%s", fno.fname);
+
+            menu_numents++;
+
+            if (scroll_amt) {
+                scroll_amt--;
+                iter++;
+                continue;
+            }
+
+            if (num_drawn >= MENU_NUM_LINES)
+            {
+                iter++;
+                stuff_below++;
+                continue;
+            }
+
+            num_drawn++;
+
+            video_printf("#{ci:2;Y:%u;X:2}%c#{ci:1;X:12}%s%c", pos_y, menu_cur_sel == iter ? '>' : ' ', fno.fname, is_dir ? '/' : ' ');
+
+            pos_y += 10;
 
             if (menu_cur_sel == iter)
             {
-                strcpy(loading_rominfo.fullpath, menu_curdir);
-                strcat(loading_rominfo.fullpath, fno.fname);
+                //strcpy(loading_rominfo.fullpath, menu_curdir);
+                strcpy(loading_rominfo.fullpath, fno.fname);
                 menu_boot_sel_is_dir = is_dir;
             }
 
             iter++;
         }
     }
+    if (stuff_below)
+    {
+        video_printf("#{ci:2;Y:%u;X:12}vvv",pos_y);
+
+    }
+    //video_printf("\nend %x\n", res);
     f_closedir(&dir);
 
     video_swap();
@@ -161,7 +212,7 @@ void save_backup_to_sd()
     int res;
 
     char fname[64];
-    char tmp[0x100];
+    char tmp[0x80];
 
     // Read registery
     res = f_open(&file, "/GBASYS/sys/cfw_registery.dat", FA_OPEN_EXISTING | FA_READ);
@@ -197,7 +248,7 @@ void save_backup_to_sd()
     bi_set_save_type(BI_SAV_SRM);
 
     // Get just the filename
-    char* loading_fname = strrchr(loading_rominfo.fullpath, '/');
+    char* loading_fname = utf8rchr(loading_rominfo.fullpath, '/');
     if (!loading_fname) {
         loading_fname = loading_rominfo.fullpath;
     }
@@ -207,8 +258,8 @@ void save_backup_to_sd()
     }
 
     // Strip the extension
-    strncpy(fname, loading_fname, 64);
-    char* ext = strrchr(fname, '.');
+    utf8ncpy(fname, loading_fname, 64);
+    char* ext = utf8rchr(fname, '.');
     if (ext && ext != fname)
     {
         *ext = 0;
@@ -240,6 +291,10 @@ void save_backup_to_sd()
 
         f_close(&file);
     }
+    else
+    {
+        video_printf("Error while writing save, %x\n", res);
+    }
 
     // ruin the CRC and write back
     loading_rominfo.titleinfo.gamecode = 0;
@@ -254,6 +309,10 @@ void save_backup_to_sd()
 
         f_close(&file);
     }
+    else
+    {
+        video_printf("Error while writing reg, %x\n", res);
+    }
 }
 
 void menu_launch_selected()
@@ -267,7 +326,7 @@ void menu_launch_selected()
     char fname[64];
 
     // Get just the filename
-    char* loading_fname = strrchr(loading_rominfo.fullpath, '/');
+    char* loading_fname = utf8rchr(loading_rominfo.fullpath, '/');
     if (!loading_fname) {
         loading_fname = loading_rominfo.fullpath;
     }
@@ -277,8 +336,8 @@ void menu_launch_selected()
     }
 
     // Strip the extension
-    strncpy(fname, loading_fname, 64);
-    char* ext = strrchr(fname, '.');
+    utf8ncpy(fname, loading_fname, 64);
+    char* ext = utf8rchr(fname, '.');
     if (ext && ext != fname)
     {
         *ext = 0;
@@ -350,7 +409,7 @@ void menu_launch_selected()
                 break;
             }
             if (*(u32*)0x080000AC == entry[0]) {
-                mgba_printf(MGBA_LOG_ERROR, "%x %x\n", entry[0], entry[1]);
+                mgba_printf("%x %x\n", entry[0], entry[1]);
 
                 u8 sav_type = entry[1] & DB_SAV_MASK;
 
@@ -380,7 +439,7 @@ void menu_launch_selected()
     }
 
     // Reuse memory here
-    char tmp[0x100]; // TODO sizes
+    char tmp[0x80]; // TODO sizes
     snprintf(tmp, sizeof(tmp), "/GBASYS/sys/romcfg/%s.dat", fname);
 
     // GBASYS/sys/romcfg/*.dat, [u16 RTC en override] [u16 save override]
@@ -536,8 +595,8 @@ void menu_launch_selected()
 
 int main(void) 
 {
-    irqInit();
-    irqEnable(IRQ_VBLANK);
+    irq_init(NULL);
+    irq_enable(II_VBLANK);
 
     mgba_open();
 
@@ -548,15 +607,15 @@ int main(void)
     bi_init();
     bi_set_rom_bank(0);
 
-    video_init();
-
     //consoleDemoInit();
 
-    video_printf("Hello world!\n");
-    mgba_printf(MGBA_LOG_ERROR, "Hello mGBA!\n");
+    mgba_printf("Hello mGBA!\n");
 
     fs_init();
     video_dirty = 1;
+
+    video_init();
+    video_printf("Hello world!\n");
 
     //video_mode_singlebuffer();
     save_backup_to_sd();
@@ -599,31 +658,80 @@ int main(void)
 
     while (1)
     {
-        //if (video_dirty)
+        if (video_dirty)
             menu_draw();
-        scanKeys();
-        u16 kd = keysDown();
+        else
+            VBlankIntrWait();
+
+        key_poll();
+        u32 kd = key_hit(KEY_FULL);
+
+        if (kd)
+        mgba_printf("%x\n", kd);
 
         if (kd & KEY_DOWN)
         {
-            menu_cur_sel++;
+            if (menu_cur_sel < menu_numents-1)
+                menu_cur_sel++;
             video_dirty = 1;
+
+            if ((menu_cur_sel - menu_scroll) >= MENU_NUM_LINES)
+            {
+                menu_scroll++;
+            }
         }
         if (kd & KEY_UP)
         {
-            menu_cur_sel--;
+            if (menu_cur_sel)
+                menu_cur_sel--;
             video_dirty = 1;
+
+            if ((menu_cur_sel - menu_scroll) < 0)
+            {
+                menu_scroll--;
+            }
         }
         if (kd & KEY_B)
         {
-            f_chdir("..");
+            //f_getcwd(menu_curdir, sizeof(menu_curdir));
+            char* last_dir = utf8rchr(menu_curdir, '/');
+            if (last_dir)
+            {
+                memset(last_dir, 0, &menu_curdir[sizeof(menu_curdir)] - last_dir);
+            }
+
+            if (last_dir == menu_curdir)
+            {
+                *(menu_curdir) = '/';
+            }
+
             menu_cur_sel = 0;
-            f_getcwd(menu_curdir+5, sizeof(menu_curdir)-5);
+            menu_numents = 0;
+            menu_scroll = 0;
+            
+            f_chdir(menu_curdir);
+
+            if (last_dir && last_dir != menu_curdir) {
+                utf8cat(menu_curdir, "/");
+            }
+            //mgba_printf("%s\n", menu_curdir);
+
+            video_dirty = 1;
         }
         if (kd & KEY_A && menu_boot_sel_is_dir) {
-            f_chdir(loading_rominfo.fullpath);
+            
             menu_cur_sel = 0;
-            f_getcwd(menu_curdir+5, sizeof(menu_curdir)-5);
+            menu_numents = 0;
+            menu_scroll = 0;
+            //f_getcwd(menu_curdir, sizeof(menu_curdir));
+            if (strcmp(menu_curdir, "/"))
+                utf8cat(menu_curdir, "/");
+
+            utf8cat(menu_curdir, loading_rominfo.fullpath);
+            //mgba_printf("%s\n", menu_curdir);
+            f_chdir(menu_curdir);
+
+            video_dirty = 1;
         }
         else if (kd & KEY_A && !menu_boot_sel_is_dir)
         {
