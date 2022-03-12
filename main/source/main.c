@@ -666,9 +666,6 @@ int main(void)
         key_poll();
         u32 kd = key_hit(KEY_FULL);
 
-        if (kd)
-        mgba_printf("%x\n", kd);
-
         if (kd & KEY_DOWN)
         {
             if (menu_cur_sel < menu_numents-1)
